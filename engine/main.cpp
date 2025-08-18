@@ -37,13 +37,31 @@ public:
     double getZoom() const { return zoom; }
 };
 
+struct NotePad {
+    int id;
+    double x, y;
+    std::string text;
+    double width, height;
+
+    // Default constructor required for Emscripten binding
+    NotePad() : id(0), x(0), y(0), text(""), width(100), height(50) {}
+    
+    NotePad(int id, double x, double y, const std::string& text, double w = 100, double h = 50)
+        :id(id), x(x), y(y), text(text), width(w), height(h) {}
+};
+
 // Canvas engine that manages the grid
 class CanvasEngine {
 private:
     GridSystem grid;
+
+    std::vector<NotePad> notePads;
+    int selectedNotePadId;
+    bool isDragging;
+    std::pair<double, double> dragOffset;
     
 public:
-    CanvasEngine() {}
+    CanvasEngine() : selectedNotePadId(-1), isDragging(false), dragOffset({0, 0}) {}
 
     void init() {
         grid = GridSystem();
@@ -79,7 +97,77 @@ public:
     double getZoom() const {
         return grid.getZoom();
     }
+
+    int createNotePad(double x, double y, const std::string& text);
+    void startDragNotePad(int notePadId, double mouseX, double mouseY);
+    void updateDragNotePad(double mouseX, double mouseY);
+    void endDragNotePad();
+    std::vector<NotePad> getNotePads() const;
 };
+
+// Implementation of CanvasEngine methods
+int CanvasEngine::createNotePad(double x, double y, const std::string& text) {
+    // Generate a unique ID (simple increment for now)
+    int newId = notePads.size() + 1;
+    
+    // Create the notepad
+    NotePad newNotePad(newId, x, y, text);
+    
+    // Add it to our vector
+    notePads.push_back(newNotePad);
+    
+    return newId;
+}
+
+void CanvasEngine::startDragNotePad(int notePadId, double mouseX, double mouseY) {
+    // Find the notepad
+    for (auto& notePad : notePads) {
+        if (notePad.id == notePadId) {
+            // Calculate offset from mouse to notepad corner
+            dragOffset.first = mouseX - notePad.x;
+            dragOffset.second = mouseY - notePad.y;
+            
+            selectedNotePadId = notePadId;
+            isDragging = true;
+            break;
+        }
+    }
+}
+
+void CanvasEngine::updateDragNotePad(double mouseX, double mouseY) {
+    if (!isDragging || selectedNotePadId == -1) return;
+    
+    // Find and update the selected notepad position
+    for (auto& notePad : notePads) {
+        if (notePad.id == selectedNotePadId) {
+            notePad.x = mouseX - dragOffset.first;
+            notePad.y = mouseY - dragOffset.second;
+            break;
+        }
+    }
+}
+
+void CanvasEngine::endDragNotePad() {
+    if (isDragging && selectedNotePadId != -1) {
+        // Snap the notepad to grid when released
+        for (auto& notePad : notePads) {
+            if (notePad.id == selectedNotePadId) {
+                auto snapped = grid.snapToGrid(notePad.x + notePad.width/2, notePad.y + notePad.height/2);
+                notePad.x = snapped.first - notePad.width/2;
+                notePad.y = snapped.second - notePad.height/2;
+                break;
+            }
+        }
+    }
+    
+    // Reset drag state
+    isDragging = false;
+    selectedNotePadId = -1;
+}
+
+std::vector<NotePad> CanvasEngine::getNotePads() const {
+    return notePads;
+}
 
 int main() {
     return 0;
@@ -87,6 +175,16 @@ int main() {
 
 // Export to JavaScript
 EMSCRIPTEN_BINDINGS(canvas_module) {
+    // Bind the NotePad struct so JavaScript can access its properties
+    emscripten::value_object<NotePad>("NotePad")
+        .field("id", &NotePad::id)
+        .field("x", &NotePad::x)
+        .field("y", &NotePad::y)
+        .field("text", &NotePad::text)
+        .field("width", &NotePad::width)
+        .field("height", &NotePad::height);
+
+    // Bind the CanvasEngine class
     emscripten::class_<CanvasEngine>("CanvasEngine")
         .constructor<>()
 		.function("init", &CanvasEngine::init)
@@ -95,5 +193,14 @@ EMSCRIPTEN_BINDINGS(canvas_module) {
         .function("setGridSize", &CanvasEngine::setGridSize)
         .function("getGridSize", &CanvasEngine::getGridSize)
         .function("setZoom", &CanvasEngine::setZoom)
-        .function("getZoom", &CanvasEngine::getZoom);
+        .function("getZoom", &CanvasEngine::getZoom)
+        // New notepad functions
+        .function("createNotePad", &CanvasEngine::createNotePad)
+        .function("startDragNotePad", &CanvasEngine::startDragNotePad)
+        .function("updateDragNotePad", &CanvasEngine::updateDragNotePad)
+        .function("endDragNotePad", &CanvasEngine::endDragNotePad)
+        .function("getNotePads", &CanvasEngine::getNotePads);
+
+    // Register std::vector<NotePad> for JavaScript
+    emscripten::register_vector<NotePad>("NotePadVector");
 }
