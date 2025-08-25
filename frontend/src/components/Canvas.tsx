@@ -1,19 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
+import { canvasConfig } from '../config/canvas';
 
 interface CanvasProps {
   canvasEngine: any; // Your WASM CanvasEngine
   currentTool: 'draw' | 'notepad';
 }
 
-// Type for notepads returned from C++ engine
-interface NotePad {
-  id: number;
-  x: number;
-  y: number;
-  text: string;
-  width: number;
-  height: number;
-}
+
 
 // NotePad interface will be defined in C++ and exposed via WASM
 // interface NotePad {
@@ -34,7 +27,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
   // const [selectedNotePad, setSelectedNotePad] = useState<string | null>(null);
   // const [isDragging, setIsDragging] = useState(false);
   // const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [drawingLines, setDrawingLines] = useState<Array<{fromX: number, fromY: number, toX: number, toY: number}>>([]);
+  const [drawingLines, setDrawingLines] = useState<Array<{ fromX: number, fromY: number, toX: number, toY: number }>>([]);
 
   // Function to resize canvas to fill container
   const resizeCanvas = () => {
@@ -46,7 +39,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     if (!container) return;
 
     const rect = container.getBoundingClientRect();
-    
+
     // Set canvas size to fill the container
     canvas.style.width = '100%';
     canvas.style.height = '100%';
@@ -66,7 +59,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     if (!ctx) return;
 
     // Clear canvas
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = canvasConfig.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw grid
@@ -85,8 +78,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     // Draw notepads from C++ engine
     if (canvasEngine) {
       const notePads = canvasEngine.getNotePads();
-      console.log('getNotePads returned:', notePads, 'type:', typeof notePads);
-      
+
       // Handle Emscripten vector object
       if (notePads && typeof notePads === 'object') {
         // Get vector size
@@ -98,7 +90,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
         } else {
           size = notePads.length || 0;
         }
-        
+
         if (size > 0) {
           for (let i = 0; i < size; i++) {
             let notePad = null;
@@ -108,17 +100,17 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
               } else if (notePads[i] !== undefined) {
                 notePad = notePads[i];
               }
-              
+
               if (notePad) {
                 // Draw notepad background
                 ctx.fillStyle = '#ffffcc';
                 ctx.fillRect(notePad.x, notePad.y, notePad.width, notePad.height);
-                
+
                 // Draw notepad border
                 ctx.strokeStyle = '#666';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(notePad.x, notePad.y, notePad.width, notePad.height);
-                
+
                 // Draw notepad text
                 ctx.fillStyle = '#000';
                 ctx.font = '12px Arial';
@@ -133,22 +125,6 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     }
   };
 
-  // Function to draw on the canvas without clearing it
-  const drawOnCanvas = (fromX: number, fromY: number, toX: number, toY: number) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Draw the line
-    ctx.beginPath();
-    ctx.moveTo(fromX, fromY);
-    ctx.lineTo(toX, toY);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -190,20 +166,14 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1;
 
-    // Draw vertical lines
+    // Draw dots at grid intersections
     for (let x = 0; x <= width; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-
-    // Draw horizontal lines
-    for (let y = 0; y <= height; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
+      for (let y = 0; y <= height; y += gridSize) {
+        ctx.beginPath();
+        ctx.arc(x, y, 1, 0, 2 * Math.PI); // x, y, radius, startAngle, endAngle
+        ctx.fillStyle = '#333';
+        ctx.fill();
+      }
     }
   };
 
@@ -219,14 +189,14 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
       // First, check if we're clicking on an existing notepad
       const notePads = canvasEngine.getNotePads();
       let clickedOnNotepad = false;
-      
+
       if (notePads && typeof notePads === 'object' && notePads.size) {
         const size = notePads.size();
         for (let i = 0; i < size; i++) {
           try {
             const notePad = notePads.get(i);
             if (notePad && mouseX >= notePad.x && mouseX <= notePad.x + notePad.width &&
-                mouseY >= notePad.y && mouseY <= notePad.y + notePad.height) {
+              mouseY >= notePad.y && mouseY <= notePad.y + notePad.height) {
               // Clicked on existing notepad - start dragging
               console.log('Clicked on existing notepad, starting drag');
               canvasEngine.startDragNotePad(notePad.id, mouseX, mouseY);
@@ -245,7 +215,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
         const notePadId = canvasEngine.createNotePad(mouseX, mouseY, "Click to edit...");
         console.log('Created notepad with ID:', notePadId);
       }
-      
+
       // Force a redraw
       redrawCanvas();
       return;
@@ -282,7 +252,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
       // Only update drag position if we're already dragging
       // Don't start new drags on mouse move - only on mouse down
       canvasEngine.updateDragNotePad(mouseX, mouseY);
-      
+
       // Redraw to show updated positions
       redrawCanvas();
       return;
@@ -298,7 +268,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
 
     // Snap to grid while drawing
     const snapped = canvasEngine.snapToGrid(x, y);
-    
+
     // Store the new line
     const newLine = { fromX: lastPos.x, fromY: lastPos.y, toX: snapped.x, toY: snapped.y };
     setDrawingLines(prev => [...prev, newLine]);
@@ -315,7 +285,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
       canvasEngine.endDragNotePad();
       redrawCanvas(); // Redraw to show final snapped position
     }
-    
+
     setIsDrawing(false);
   };
 
@@ -331,14 +301,14 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
           height: '100%',
           border: '1px solid #666',
           cursor: currentTool === 'notepad' ? 'crosshair' : 'crosshair',
-          backgroundColor: '#1a1a1a',
+          backgroundColor: canvasConfig.background,
           display: 'block'
         }}
       />
-      
+
       {/* Notepads will be rendered by C++ engine */}
       {/* TODO: Implement notepad rendering from C++ data */}
-      
+
       {/* Tool indicator */}
       <div style={{
         position: 'absolute',
