@@ -1,33 +1,15 @@
 import { useRef, useEffect, useState } from 'react';
 import { canvasConfig } from '../config/canvas';
+import { TOOL_REGISTRY, type ToolId } from '../config/tools';
 
 interface CanvasProps {
   canvasEngine: any; // Your WASM CanvasEngine
-  currentTool: 'draw' | 'notepad';
+  currentTool: ToolId;
+  setCurrentTool: (tool: ToolId) => void;
 }
 
-
-
-// NotePad interface will be defined in C++ and exposed via WASM
-// interface NotePad {
-//   id: string;
-//   x: number;
-//   y: number;
-//   text: string;
-//   width: number;
-//   height: number;
-// }
-
-export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
+export function Canvas({ canvasEngine, currentTool, setCurrentTool }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [lastPos, setLastPos] = useState({ x: 0, y: 0 });
-  // These will be managed by C++ engine instead
-  // const [notePads, setNotePads] = useState<NotePad[]>([]);
-  // const [selectedNotePad, setSelectedNotePad] = useState<string | null>(null);
-  // const [isDragging, setIsDragging] = useState(false);
-  // const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [drawingLines, setDrawingLines] = useState<Array<{ fromX: number, fromY: number, toX: number, toY: number }>>([]);
 
   // Function to resize canvas to fill container
   const resizeCanvas = () => {
@@ -64,16 +46,6 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
 
     // Draw grid
     drawGrid(ctx, canvas.width, canvas.height);
-
-    // Draw all stored drawing lines
-    drawingLines.forEach(line => {
-      ctx.beginPath();
-      ctx.moveTo(line.fromX, line.fromY);
-      ctx.lineTo(line.toX, line.toY);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    });
 
     // Draw notepads from C++ engine
     if (canvasEngine) {
@@ -125,7 +97,6 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     }
   };
 
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !canvasEngine) return;
@@ -140,24 +111,11 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     // Add resize listener
     window.addEventListener('resize', resizeCanvas);
 
-    // Global mouse up listener will be handled by C++ engine
-    // TODO: Implement notepad drag handling in C++
-
-    // TODO: Add global mouse up listener for C++ notepad handling
-
     // Cleanup
     return () => {
       window.removeEventListener('resize', resizeCanvas);
-      // TODO: Remove global mouse up listener when implemented
     };
-  }, [canvasEngine]); // Remove the problematic dependencies
-
-  // Redraw canvas when drawingLines change
-  useEffect(() => {
-    if (canvasRef.current) {
-      redrawCanvas();
-    }
-  }, [drawingLines]);
+  }, [canvasEngine]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     if (!canvasEngine) return;
@@ -170,7 +128,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
     for (let x = 0; x <= width; x += gridSize) {
       for (let y = 0; y <= height; y += gridSize) {
         ctx.beginPath();
-        ctx.arc(x, y, 1, 0, 2 * Math.PI); // x, y, radius, startAngle, endAngle
+        ctx.arc(x, y, 1, 0, 2 * Math.PI);
         ctx.fillStyle = '#333';
         ctx.fill();
       }
@@ -214,6 +172,9 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
         console.log('Creating new notepad at:', mouseX, mouseY);
         const notePadId = canvasEngine.createNotePad(mouseX, mouseY, "Click to edit...");
         console.log('Created notepad with ID:', notePadId);
+
+        // Auto switch to select tool
+        setCurrentTool('select');
       }
 
       // Force a redraw
@@ -221,27 +182,41 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
       return;
     }
 
-    // Original drawing logic
-    if (!canvasEngine) return;
+    // Selection mode logic - DRAG EXISTING NOTEPADS
+    if (currentTool === 'select') {
+      const canvas = canvasRef.current;
+      if (!canvas || !canvasEngine) return;
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Snap to grid using your WASM engine!
-    const snapped = canvasEngine.snapToGrid(x, y);
-    console.log('Snapped to grid:', snapped);
-
-    setIsDrawing(true);
-    setLastPos({ x: snapped.x, y: snapped.y });
+      // Check if clicking on existing notepad to start dragging
+      const notePads = canvasEngine.getNotePads();
+      if (notePads && typeof notePads === 'object' && notePads.size) {
+        const size = notePads.size();
+        for (let i = 0; i < size; i++) {
+          try {
+            const notePad = notePads.get(i);
+            if (notePad && mouseX >= notePad.x && mouseX <= notePad.x + notePad.width &&
+              mouseY >= notePad.y && mouseY <= notePad.y + notePad.height) {
+              // Clicked on existing notepad - start dragging
+              console.log('Selection mode: Starting drag on notepad', notePad.id);
+              canvasEngine.startDragNotePad(notePad.id, mouseX, mouseY);
+              return;
+            }
+          } catch (error) {
+            console.error('Error checking notepad collision:', error);
+          }
+        }
+      }
+      console.log('Selection mode: No notepad clicked');
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    // Handle notepad dragging via C++ engine
-    if (canvasEngine && currentTool === 'notepad') {
+    // Handle notepad dragging via C++ engine (both tools)
+    if (canvasEngine && (currentTool === 'notepad' || currentTool === 'select')) {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -249,44 +224,21 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      // Only update drag position if we're already dragging
-      // Don't start new drags on mouse move - only on mouse down
+      // Update drag position if we're already dragging
       canvasEngine.updateDragNotePad(mouseX, mouseY);
 
       // Redraw to show updated positions
       redrawCanvas();
       return;
     }
-
-    if (!isDrawing || !canvasEngine) return;
-
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Snap to grid while drawing
-    const snapped = canvasEngine.snapToGrid(x, y);
-
-    // Store the new line
-    const newLine = { fromX: lastPos.x, fromY: lastPos.y, toX: snapped.x, toY: snapped.y };
-    setDrawingLines(prev => [...prev, newLine]);
-
-    // Redraw the canvas to show the new line
-    redrawCanvas();
-
-    setLastPos({ x: snapped.x, y: snapped.y });
   };
 
   const handleMouseUp = () => {
-    // End notepad dragging via C++ engine
-    if (canvasEngine && currentTool === 'notepad') {
+    // End notepad dragging via C++ engine (both tools)
+    if (canvasEngine && (currentTool === 'notepad' || currentTool === 'select')) {
       canvasEngine.endDragNotePad();
       redrawCanvas(); // Redraw to show final snapped position
     }
-
-    setIsDrawing(false);
   };
 
   return (
@@ -300,14 +252,11 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
           width: '100%',
           height: '100%',
           border: '1px solid #666',
-          cursor: currentTool === 'notepad' ? 'crosshair' : 'crosshair',
+          cursor: TOOL_REGISTRY[currentTool]?.cursor || 'default',
           backgroundColor: canvasConfig.background,
           display: 'block'
         }}
       />
-
-      {/* Notepads will be rendered by C++ engine */}
-      {/* TODO: Implement notepad rendering from C++ data */}
 
       {/* Tool indicator */}
       <div style={{
@@ -321,7 +270,7 @@ export function Canvas({ canvasEngine, currentTool }: CanvasProps) {
         fontSize: '12px',
         zIndex: 20
       }}>
-        Current Tool: {currentTool === 'draw' ? 'Draw' : 'Notepad'}
+        Current Tool: {TOOL_REGISTRY[currentTool]?.name || 'Unknown'}
       </div>
     </div>
   );

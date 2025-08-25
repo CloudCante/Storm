@@ -3,6 +3,13 @@
 #include <vector>
 #include <cmath>
 
+// Define GridPoint FIRST, before any classes that use it
+struct GridPoint {
+    int x, y;
+    GridPoint() : x(0), y(0) {}
+    GridPoint(int x, int y) : x(x), y(y) {}
+};
+
 // Grid system for canvas
 class GridSystem {
 private:
@@ -15,13 +22,13 @@ public:
     void setGridSizeFromScreen(int screenWidth, int screenHeight) {
         // Set grid size based on screen dimensions
         gridSize = std::max(screenWidth, screenHeight);
-	}
+    }
     
     // Calculate snap point for grid
-    std::pair<int, int> snapToGrid(double x, double y) {
+    GridPoint snapToGrid(double x, double y) {
         int gridX = round(x / gridSize) * gridSize;
         int gridY = round(y / gridSize) * gridSize;
-        return {gridX, gridY};
+        return GridPoint(gridX, gridY);
     }
     
     // Set grid size
@@ -54,7 +61,6 @@ struct NotePad {
 class CanvasEngine {
 private:
     GridSystem grid;
-
     std::vector<NotePad> notePads;
     int selectedNotePadId;
     bool isDragging;
@@ -66,15 +72,15 @@ public:
     void init() {
         grid = GridSystem();
         grid.setGridSize(50);
-	}
+    }
 
     void initWithScreenSize(int screenWidth, int screenHeight) {
-		grid = GridSystem();
+        grid = GridSystem();
         grid.setGridSizeFromScreen(screenWidth, screenHeight);
-	}
+    }
     
     // Snap coordinates to grid
-    std::pair<int, int> snapToGrid(double x, double y) {
+    GridPoint snapToGrid(double x, double y) {
         return grid.snapToGrid(x, y);
     }
     
@@ -153,8 +159,8 @@ void CanvasEngine::endDragNotePad() {
         for (auto& notePad : notePads) {
             if (notePad.id == selectedNotePadId) {
                 auto snapped = grid.snapToGrid(notePad.x + notePad.width/2, notePad.y + notePad.height/2);
-                notePad.x = snapped.first - notePad.width/2;
-                notePad.y = snapped.second - notePad.height/2;
+                notePad.x = snapped.x - notePad.width/2;
+                notePad.y = snapped.y - notePad.height/2;
                 break;
             }
         }
@@ -184,11 +190,16 @@ EMSCRIPTEN_BINDINGS(canvas_module) {
         .field("width", &NotePad::width)
         .field("height", &NotePad::height);
 
+    // Create a simple struct for grid coordinates instead of std::pair
+    emscripten::value_object<GridPoint>("GridPoint")
+        .field("x", &GridPoint::x)
+        .field("y", &GridPoint::y);
+
     // Bind the CanvasEngine class
     emscripten::class_<CanvasEngine>("CanvasEngine")
         .constructor<>()
-		.function("init", &CanvasEngine::init)
-		.function("initWithScreenSize", &CanvasEngine::initWithScreenSize)
+        .function("init", &CanvasEngine::init)
+        .function("initWithScreenSize", &CanvasEngine::initWithScreenSize)
         .function("snapToGrid", &CanvasEngine::snapToGrid)
         .function("setGridSize", &CanvasEngine::setGridSize)
         .function("getGridSize", &CanvasEngine::getGridSize)
@@ -204,3 +215,6 @@ EMSCRIPTEN_BINDINGS(canvas_module) {
     // Register std::vector<NotePad> for JavaScript
     emscripten::register_vector<NotePad>("NotePadVector");
 }
+
+
+//C:\projects\Storm\engine>emcc main.cpp -o canvas.js --bind -s WASM=1 -s ALLOW_MEMORY_GROWTH=1    Binding commands

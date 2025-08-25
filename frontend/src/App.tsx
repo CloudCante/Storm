@@ -1,12 +1,12 @@
 import { MantineProvider, AppShell, Group, Button, Stack, Text } from "@mantine/core";
-import { IconPalette, IconBrush, IconEraser, IconSettings, IconSun, IconMoon, IconNote } from '@tabler/icons-react';
 import { Canvas } from './components/Canvas';
 import { useState, useEffect } from 'react';
+import { TOOL_REGISTRY, type ToolId } from './config/tools';
 
 function App() {
   const [colorScheme, setColorScheme] = useState<'light' | 'dark'>('dark');
   const [canvasEngine, setCanvasEngine] = useState<any>(null);
-  const [currentTool, setCurrentTool] = useState<'draw' | 'notepad'>('draw');
+  const [currentTool, setCurrentTool] = useState<ToolId>('select');
 
   useEffect(() => {
     // Get the global CanvasEngine from WASM
@@ -23,7 +23,7 @@ function App() {
     setColorScheme(colorScheme === 'dark' ? 'light' : 'dark');
   };
 
-  const handleToolChange = (tool: 'draw' | 'notepad') => {
+  const handleToolChange = (tool: ToolId) => {
     setCurrentTool(tool);
     console.log('Tool changed to:', tool);
   };
@@ -41,7 +41,7 @@ function App() {
             <Button
               variant="subtle"
               onClick={toggleColorScheme}
-              leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />}
+              leftSection={colorScheme === 'dark' ? '☀️' : '🌙'}
             >
               {colorScheme === 'dark' ? 'Light' : 'Dark'}
             </Button>
@@ -52,39 +52,26 @@ function App() {
           <Stack gap="md">
             <Text size="lg" fw={600} mb="md">Tools</Text>
 
-            <Button 
-              variant={currentTool === 'draw' ? 'filled' : 'subtle'} 
-              leftSection={<IconBrush size={16} />}
-              onClick={() => handleToolChange('draw')}
-            >
-              Draw
-            </Button>
-
-            <Button 
-              variant={currentTool === 'notepad' ? 'filled' : 'subtle'} 
-              leftSection={<IconNote size={16} />}
-              onClick={() => handleToolChange('notepad')}
-            >
-              Note Pad
-            </Button>
-
-            <Button variant="subtle" leftSection={<IconPalette size={16} />}>
-              Color Picker
-            </Button>
-
-            <Button variant="subtle" leftSection={<IconEraser size={16} />}>
-              Eraser
-            </Button>
-
-            <Button variant="subtle" leftSection={<IconSettings size={16} />}>
-              Settings
-            </Button>
+            {Object.values(TOOL_REGISTRY).map(tool => (
+              <Button
+                key={tool.id}
+                variant={currentTool === tool.id ? 'filled' : 'subtle'}
+                leftSection={tool.icon}
+                onClick={() => handleToolChange(tool.id)}
+              >
+                {tool.name}
+              </Button>
+            ))}
           </Stack>
         </AppShell.Navbar>
 
         <AppShell.Main>
           {canvasEngine ? (
-            <Canvas canvasEngine={canvasEngine} currentTool={currentTool} />
+            <Canvas
+              canvasEngine={canvasEngine}
+              currentTool={currentTool}
+              setCurrentTool={setCurrentTool}
+            />
           ) : (
             <div style={{
               width: '100%',
